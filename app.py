@@ -12,7 +12,7 @@ from ultralytics import YOLO
 app = Flask(__name__)
 
 # Load model
-MODEL_PATH = "train-4.onnx"  # Update to your actual filename (.onnx, .torchscript, or .pt)
+MODEL_PATH = "train-4.torchscript"  # Update to your actual filename (.onnx, .torchscript, or .pt)
 model = YOLO(MODEL_PATH)
 
 print("\n--- MODEL LOADED SUCCESSFULLY ---")
