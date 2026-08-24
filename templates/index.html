@@ -1,0 +1,138 @@
+# Copyright (C) 2026 Your Name / Company Name
+# This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>YOLO11 Non-Blocking Stream</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; background: #121212; color: #fff; margin-top: 20px; }
+    .container { position: relative; display: inline-block; }
+    video, canvas { border-radius: 8px; }
+    canvas { position: absolute; top: 0; left: 0; }
+    #status { font-weight: bold; color: #00ffcc; margin-top: 10px; }
+  </style>
+</head>
+<body>
+
+  <h1>Non-Blocking Live Detection</h1>
+  <div id="status">Starting camera...</div>
+
+  <div class="container">
+    <video id="webcam" autoplay playsinline width="640" height="640" style="display:none;"></video>
+    <canvas id="canvas" width="640" height="640"></canvas>
+  </div>
+
+  <script>
+    const video = document.getElementById("webcam");
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const statusDiv = document.getElementById("status");
+
+    let currentDetections = [];
+    let isRequestPending = false;
+    let lastSpokenClass = "";
+    let lastSpokenTime = 0;
+
+    // Text-to-Speech Cooldown
+    function speak(text) {
+      const now = Date.now();
+      if (text === lastSpokenClass && now - lastSpokenTime < 3000) return;
+
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(`Detected ${text}`);
+      window.speechSynthesis.speak(utterance);
+
+      lastSpokenClass = text;
+      lastSpokenTime = now;
+    }
+
+    // 1. Smooth Render Loop (60 FPS Camera Display)
+    function renderLoop() {
+      // Always draw the current raw video frame
+      ctx.drawImage(video, 0, 0, 640, 640);
+
+      // Draw the latest detections over the frame
+      currentDetections.forEach(det => {
+        const [x1, y1, x2, y2] = det.box;
+        const w = x2 - x1;
+        const h = y2 - y1;
+
+        ctx.strokeStyle = "#00FF00";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(x1, y1, w, h);
+
+        ctx.fillStyle = "#00FF00";
+        ctx.font = "18px sans-serif";
+        ctx.fillText(`${det.class} (${Math.round(det.confidence * 100)}%)`, x1, y1 > 20 ? y1 - 5 : 20);
+      });
+
+      // Keep rendering without waiting for network
+      requestAnimationFrame(renderLoop);
+    }
+
+    // 2. Async Detection Loop (Runs in background)
+    async function sendFrameForDetection() {
+      // Don't send a new frame if Flask is still processing the last one
+      if (isRequestPending || video.readyState !== 4) return;
+
+      isRequestPending = true;
+
+      // Offscreen canvas snapshot to send to Flask
+      const offscreenCanvas = document.createElement("canvas");
+      offscreenCanvas.width = 640;
+      offscreenCanvas.height = 640;
+      const offscreenCtx = offscreenCanvas.getContext("2d");
+      offscreenCtx.drawImage(video, 0, 0, 640, 640);
+      
+      const imageData = offscreenCanvas.toDataURL("image/jpeg", 0.6);
+
+      try {
+        const response = await fetch("/detect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image: imageData })
+        });
+
+        const data = await response.json();
+        if (data.detections) {
+          currentDetections = data.detections; // Update current boxes smoothly
+
+          // Trigger speech on detection
+          data.detections.forEach(d => speak(d.class));
+        }
+      } catch (err) {
+        console.error("Inference Error:", err);
+      } finally {
+        isRequestPending = false; // Ready for next frame
+      }
+    }
+
+    // Start Video and Loops
+    async function init() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 640, height: 640 }
+        });
+        video.srcObject = stream;
+
+        video.onloadeddata = () => {
+          statusDiv.innerText = "Streaming continuously...";
+          
+          // Start render loop immediately
+          requestAnimationFrame(renderLoop);
+
+          // Poll API continuously every 100ms (will skip if busy)
+          setInterval(sendFrameForDetection, 100);
+        };
+      } catch (err) {
+        statusDiv.innerText = "Error accessing camera: " + err.message;
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

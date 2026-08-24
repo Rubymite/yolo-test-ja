@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ### AL ###
 #Template for AL projects for Dynamics 365 Business Central
 #launch.json folder
@@ -21,3 +22,10 @@ rad.json
 *.flf
 #Test results file
 TestResults.xml
+=======
+__pycache__/
+*.pyc
+.DS_Store
+venv/
+.env
+>>>>>>> 5f74ed5 (Initial commit - AGPL-3.0 web app release)
